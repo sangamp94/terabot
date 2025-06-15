@@ -4,7 +4,7 @@ from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filte
 from playwright.sync_api import sync_playwright
 import threading
 
-BOT_TOKEN = "PLACEHOLDER"  # Replace with your real Telegram bot token
+BOT_TOKEN = "7978862914:AAE9YgkLOTMsynLVquZEESWbvYglJbfNWHc"  # Replace with your real Telegram bot token
 
 app = Flask(__name__)
 
