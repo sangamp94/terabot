@@ -1,4 +1,6 @@
 import os
+import re
+import time
 import requests
 from flask import Flask, request, jsonify
 from selenium import webdriver
@@ -9,9 +11,11 @@ from selenium.webdriver.support import expected_conditions as EC
 
 app = Flask(__name__)
 
+# Telegram Bot Token
 BOT_TOKEN = "8182816847:AAGcetpSXP0gpNgYj8CJAryxnH5_nRYW2gM"
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
+# Function to send messages
 def send_message(chat_id, text):
     url = f"{TELEGRAM_API}/sendMessage"
     payload = {
@@ -20,56 +24,51 @@ def send_message(chat_id, text):
         "disable_web_page_preview": True
     }
     try:
-        resp = requests.post(url, json=payload, timeout=10)
+        response = requests.post(url, json=payload, timeout=10)
         print(f"[✅] Message sent to {chat_id}: {text}")
-        print(f"[ℹ️] Telegram API response: {resp.text}")
     except Exception as e:
         print(f"[❌] Failed to send message to {chat_id}: {e}")
 
+# Function to get direct download link using Selenium
 def get_direct_link(tera_url):
-    options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1920,1080")
-
-    # If ChromeDriver is not in PATH, specify executable_path
-    driver = webdriver.Chrome(options=options)
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-gpu")
 
     try:
+        driver = webdriver.Chrome(options=chrome_options)
         driver.get("https://teraboxdownloader.online/")
+        print("[🌐] Opened teraboxdownloader.online")
 
-        # Wait for input box and enter the Terabox URL
-        input_field = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, 'input[name="link"]'))
+        input_box = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.NAME, "link"))
         )
-        input_field.clear()
-        input_field.send_keys(tera_url)
+        input_box.send_keys(tera_url)
 
-        # Find and click the Download button
-        download_btn = driver.find_element(By.CSS_SELECTOR, 'button[type="submit"]')
-        download_btn.click()
+        download_button = driver.find_element(By.XPATH, "//button[contains(text(), 'Download')]")
+        download_button.click()
+        print("[👆] Clicked download button")
 
-        # Wait for the "Download Video" button (a link with class 'download-btn') to appear
-        download_video_link = WebDriverWait(driver, 30).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, 'a.download-btn'))
+        # Wait for final download link button to appear
+        final_link = WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.XPATH, "//a[contains(text(), 'Download Video')]"))
         )
-
-        href = download_video_link.get_attribute("href")
+        href = final_link.get_attribute("href")
+        print(f"[✅] Found download link: {href}")
+        driver.quit()
         return href
-
     except Exception as e:
-        print(f"[❌] Selenium error: {e}")
+        print(f"[❌] Error in Selenium: {e}")
         return None
 
-    finally:
-        driver.quit()
-
+# Home route
 @app.route("/", methods=["GET"])
 def home():
     return "✅ TeraBox Bot is running."
 
+# Webhook handler
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def webhook():
     data = request.get_json(force=True)
@@ -99,12 +98,14 @@ def webhook():
 
     return jsonify({"ok": True})
 
+# Manual webhook setup route (optional)
 @app.route("/setwebhook", methods=["GET"])
 def set_webhook():
     webhook_url = f"https://{request.host}/{BOT_TOKEN}"
     res = requests.get(f"{TELEGRAM_API}/setWebhook?url={webhook_url}")
     return jsonify(res.json())
 
+# Run server
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
