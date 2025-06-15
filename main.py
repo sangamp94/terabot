@@ -40,14 +40,16 @@ def get_direct_link(tera_url):
         response = requests.post(terabox_downloader_url, data=payload, headers=headers, allow_redirects=True, timeout=30)
         response.raise_for_status()
 
-        # Look for direct download link in HTML
-        download_link_pattern = r'<a[^>]*href=["\'](https?://[^"\']*\.(?:zip|rar|mp4|avi|mkv|pdf|doc|docx|xlsx|pptx|gz|7z|exe|txt|jpg|png|gif|webp)[^"\']*)["\'][^>]*>(?:.*?Download|.*?Direct Link).*?</a>'
+        print(f"[DEBUG] Response HTML:\n{response.text[:2000]}")  # Debug first 2000 chars
+
+        # Regex to find direct download link in anchor tags
+        download_link_pattern = r'<a[^>]+href=["\'](https?://[^"\']+?)(?:["\'][^>]*>.*?(?:Download|Direct Link).*?</a>)'
         match = re.search(download_link_pattern, response.text, re.IGNORECASE | re.DOTALL)
         if match:
             return match.group(1)
 
         # Fallback: JS variable link pattern
-        js_link_pattern = r'(?:var|const|let)\s+downloadLink\s*=\s*["\'](https?://[^"\']*)["\']'
+        js_link_pattern = r'(?:var|const|let)\s+downloadLink\s*=\s*["\'](https?://[^"\']+)["\']'
         js_match = re.search(js_link_pattern, response.text, re.IGNORECASE)
         if js_match:
             return js_match.group(1)
@@ -77,7 +79,7 @@ def webhook():
     try:
         if text.startswith("/start"):
             send_message(chat_id, "👋 Welcome! Send me a Terabox link to get a direct download link.")
-        elif "terabox.com" in text or "teraboxapp.com" in text:
+        elif any(domain in text for domain in ["terabox.com", "teraboxapp.com", "1024terabox.com"]):
             send_message(chat_id, "⏳ Processing your link, please wait...")
             link = get_direct_link(text)
             if link:
