@@ -2,7 +2,7 @@ from flask import Flask, request
 import requests
 import os
 
-BOT_TOKEN = "PLACEHOLDER"  # Replace with your Telegram bot token
+BOT_TOKEN = "7978862914:AAE9YgkLOTMsynLVquZEESWbvYglJbfNWHc"  # Replace with your Telegram bot token
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 
 app = Flask(__name__)
