@@ -1,129 +1,91 @@
-from flask import Flask, request
-import requests
 import os
-from datetime import datetime, timedelta
+import requests
+from flask import Flask, request
+from datetime import datetime
 
 app = Flask(__name__)
 
-# Telegram & Auth
+# ✅ Telegram Bot Token
 BOT_TOKEN = "7978862914:AAE9YgkLOTMsynLVquZEESWbvYglJbfNWHc"
-API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
-VALID_TOKEN = "12345678"
+TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 
-# TeraBox API via RapidAPI
+# ✅ RapidAPI credentials
 RAPIDAPI_KEY = "e1ee8114a3msh6aa90362eb62b31p1913f1jsne6671eb9046d"
 RAPIDAPI_HOST = "terabox-downloader-direct-download-link-generator2.p.rapidapi.com"
-RAPIDAPI_BASE = f"https://{RAPIDAPI_HOST}/url"
+TERABOX_API_URL = f"https://{RAPIDAPI_HOST}/url"
 
-# In-memory session control
-user_tokens = {}
-last_upload_time = {}
+# Send message to Telegram user
+def send_message(chat_id, text, parse_mode="Markdown"):
+    url = TELEGRAM_API + "sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": parse_mode
+    }
+    requests.post(url, json=payload)
 
-# Config
-TOKEN_EXPIRY_HOURS = 5
-UPLOAD_COOLDOWN_MINUTES = 2
-
-def send_message(chat_id, text):
-    url = API_URL + "sendMessage"
-    data = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown", "disable_web_page_preview": False}
-    requests.post(url, json=data)
-
-def is_user_verified(chat_id):
-    expiry = user_tokens.get(chat_id)
-    return expiry and datetime.now() < expiry
-
-def is_upload_allowed(chat_id):
-    last_time = last_upload_time.get(chat_id)
-    if not last_time:
-        return True
-    return datetime.now() >= last_time + timedelta(minutes=UPLOAD_COOLDOWN_MINUTES)
 
 @app.route("/", methods=["POST"])
 def webhook():
-    update = request.get_json()
-    if not update:
-        return "No update received"
+    data = request.get_json()
 
-    message = update.get("message")
-    if not message:
-        return "No message"
+    if "message" not in data:
+        return "ok"
 
+    message = data["message"]
     chat_id = message["chat"]["id"]
     text = message.get("text", "")
 
-    if text.startswith("/start"):
-        send_message(chat_id, "👋 *Welcome to TeraBox Direct Download Bot!*\nUse `/token <your_token>` to get started.")
+    if text.startswith("/start") or text.startswith("/help"):
+        send_message(chat_id, "👋 *Welcome!*\nUse `/download <terabox_link>` to get the direct link.")
         return "ok"
 
-    if text.startswith("/token"):
+    elif text.startswith("/download"):
         parts = text.split(" ", 1)
-        if len(parts) < 2:
-            send_message(chat_id, "❗ Usage: `/token <your_token>`")
+        if len(parts) != 2:
+            send_message(chat_id, "❗ Usage:\n/download https://terabox.com/s/...")
             return "ok"
 
-        input_token = parts[1].strip()
-        if input_token == VALID_TOKEN:
-            expiry = datetime.now() + timedelta(hours=TOKEN_EXPIRY_HOURS)
-            user_tokens[chat_id] = expiry
-            send_message(chat_id, "✅ *Access granted for 5 hours!*")
-        else:
-            send_message(chat_id, "⛔ *Invalid token.*")
-        return "ok"
-
-    if text.startswith("/uploadurl"):
-        if not is_user_verified(chat_id):
-            send_message(chat_id, "⛔ *Token not verified.* Use `/token <your_token>`.")
+        link = parts[1].strip()
+        if "terabox.com" not in link:
+            send_message(chat_id, "❗ Please provide a valid Terabox link.")
             return "ok"
 
-        if not is_upload_allowed(chat_id):
-            send_message(chat_id, f"⏳ Please wait {UPLOAD_COOLDOWN_MINUTES} minutes between requests.")
-            return "ok"
+        send_message(chat_id, "🔄 Fetching download link...")
 
-        parts = text.split(" ", 1)
-        if len(parts) < 2:
-            send_message(chat_id, "❗ Usage: `/uploadurl <terabox_url>`")
-            return "ok"
-
-        terabox_url = parts[1].strip()
-
-        if "terabox" not in terabox_url:
-            send_message(chat_id, "❗ Only *Terabox* links are supported.")
-            return "ok"
-
-        send_message(chat_id, "🔍 *Extracting download link...*")
+        headers = {
+            "x-rapidapi-key": RAPIDAPI_KEY,
+            "x-rapidapi-host": RAPIDAPI_HOST
+        }
 
         try:
-            params = {"url": terabox_url}
-            headers = {
-                "x-rapidapi-key": RAPIDAPI_KEY,
-                "x-rapidapi-host": RAPIDAPI_HOST
-            }
-
-            response = requests.get(RAPIDAPI_BASE, headers=headers, params=params, timeout=20)
+            response = requests.get(TERABOX_API_URL, headers=headers, params={"url": link}, timeout=30)
             response.raise_for_status()
             data = response.json()
 
-            if data.get("link"):
-                filename = data.get("file_name", "file.mp4")
-                size = data.get("size", "Unknown size")
-                link = data["link"]
+            if isinstance(data, list) and data:
+                file = data[0]
+                filename = file.get("file_name")
+                size = file.get("size")
+                dl_link = file.get("direct_link")
 
-                message = (
-                    f"✅ *Direct Link Generated!*\n"
-                    f"🎬 *File:* `{filename}`\n"
-                    f"📦 *Size:* {size}\n"
-                    f"🔗 [Click to Download]({link})"
+                reply = (
+                    f"✅ *Download Ready!*\n\n"
+                    f"📁 File: `{filename}`\n"
+                    f"📦 Size: {size}\n"
+                    f"🔗 [Click to Download]({dl_link})"
                 )
-                send_message(chat_id, message)
-                last_upload_time[chat_id] = datetime.now()
+                send_message(chat_id, reply)
             else:
-                send_message(chat_id, "❌ Failed to extract link.")
+                send_message(chat_id, "⚠️ No file found or invalid response.")
         except Exception as e:
-            send_message(chat_id, f"⚠️ Error: `{str(e)}`")
+            send_message(chat_id, f"❌ Error:\n`{str(e)}`")
 
         return "ok"
 
     return "ok"
 
+
 if __name__ == "__main__":
+    # For local testing, use a tool like ngrok to expose your port
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
