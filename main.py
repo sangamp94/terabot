@@ -1,11 +1,14 @@
 import os
-import re
 import requests
 from flask import Flask, request, jsonify
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 app = Flask(__name__)
 
-# Your bot token (keep it secret in production)
 BOT_TOKEN = "8182816847:AAGcetpSXP0gpNgYj8CJAryxnH5_nRYW2gM"
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
@@ -24,41 +27,44 @@ def send_message(chat_id, text):
         print(f"[❌] Failed to send message to {chat_id}: {e}")
 
 def get_direct_link(tera_url):
-    terabox_downloader_url = "https://teraboxdownloader.online/"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9",
-        "Referer": terabox_downloader_url,
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Origin": terabox_downloader_url
-    }
-    payload = {
-        "link": tera_url
-    }
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--window-size=1920,1080")
+
+    # If ChromeDriver is not in PATH, specify executable_path
+    driver = webdriver.Chrome(options=options)
 
     try:
-        response = requests.post(terabox_downloader_url, data=payload, headers=headers, allow_redirects=True, timeout=30)
-        response.raise_for_status()
+        driver.get("https://teraboxdownloader.online/")
 
-        print(f"[DEBUG] Response HTML:\n{response.text[:2000]}")  # Debug first 2000 chars
+        # Wait for input box and enter the Terabox URL
+        input_field = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, 'input[name="link"]'))
+        )
+        input_field.clear()
+        input_field.send_keys(tera_url)
 
-        # Regex to find direct download link in anchor tags
-        download_link_pattern = r'<a[^>]+href=["\'](https?://[^"\']+?)(?:["\'][^>]*>.*?(?:Download|Direct Link).*?</a>)'
-        match = re.search(download_link_pattern, response.text, re.IGNORECASE | re.DOTALL)
-        if match:
-            return match.group(1)
+        # Find and click the Download button
+        download_btn = driver.find_element(By.CSS_SELECTOR, 'button[type="submit"]')
+        download_btn.click()
 
-        # Fallback: JS variable link pattern
-        js_link_pattern = r'(?:var|const|let)\s+downloadLink\s*=\s*["\'](https?://[^"\']+)["\']'
-        js_match = re.search(js_link_pattern, response.text, re.IGNORECASE)
-        if js_match:
-            return js_match.group(1)
+        # Wait for the "Download Video" button (a link with class 'download-btn') to appear
+        download_video_link = WebDriverWait(driver, 30).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, 'a.download-btn'))
+        )
 
-        print(f"[⚠️] No direct link found in response HTML for {tera_url}")
-        return None
+        href = download_video_link.get_attribute("href")
+        return href
+
     except Exception as e:
-        print(f"[❌] Error fetching direct link for {tera_url}: {e}")
+        print(f"[❌] Selenium error: {e}")
         return None
+
+    finally:
+        driver.quit()
 
 @app.route("/", methods=["GET"])
 def home():
@@ -66,7 +72,7 @@ def home():
 
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def webhook():
-    data = request.get_json(force=True)  # force=True to be sure to parse JSON
+    data = request.get_json(force=True)
     print(f"[📩] Incoming update: {data}")
 
     if not data or "message" not in data:
@@ -79,11 +85,11 @@ def webhook():
     try:
         if text.startswith("/start"):
             send_message(chat_id, "👋 Welcome! Send me a Terabox link to get a direct download link.")
-        elif any(domain in text for domain in ["terabox.com", "teraboxapp.com", "1024terabox.com"]):
+        elif "terabox.com" in text or "teraboxapp.com" in text:
             send_message(chat_id, "⏳ Processing your link, please wait...")
-            link = get_direct_link(text)
-            if link:
-                send_message(chat_id, f"✅ Direct Download Link:\n{link}")
+            direct_link = get_direct_link(text)
+            if direct_link:
+                send_message(chat_id, f"✅ Direct Download Link:\n{direct_link}")
             else:
                 send_message(chat_id, "❌ Failed to extract the download link. Try another link or try later.")
         else:
@@ -95,7 +101,7 @@ def webhook():
 
 @app.route("/setwebhook", methods=["GET"])
 def set_webhook():
-    webhook_url = f"https://{request.host}/{BOT_TOKEN}"  # auto-generate webhook URL
+    webhook_url = f"https://{request.host}/{BOT_TOKEN}"
     res = requests.get(f"{TELEGRAM_API}/setWebhook?url={webhook_url}")
     return jsonify(res.json())
 
