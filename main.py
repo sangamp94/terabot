@@ -7,37 +7,43 @@ from telegram.ext import (
     filters
 )
 
-BOT_TOKEN = "7978862914:AAE9YgkLOTMsynLVquZEESWbvYglJbfNWHc"  # Replace this with your actual bot token
+# Replace this with your actual BotFather token
+BOT_TOKEN = "7978862914:AAE9YgkLOTMsynLVquZEESWbvYglJbfNWHc"
 
+# /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Hi! Send me a TeraBox link and I’ll help you get started.\n\n"
-        "📌 Just paste the link and I’ll reply with instructions!"
+        "👋 Welcome to the TeraBox Link Helper Bot!\n\n"
+        "📥 Just send me a TeraBox link and I’ll guide you on how to open/download it safely."
     )
 
+# /help command
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📚 *Help Guide*\n\n"
-        "Just paste a TeraBox link, and I’ll help you open it properly.\n"
-        "No need to use commands — just send the link!",
+        "ℹ️ *Help Guide*\n\n"
+        "Paste a TeraBox link, and I’ll help you open or download it.\n\n"
+        "*Examples:*\n"
+        "`https://terabox.com/s/...`\n"
+        "`https://www.1024tera.com/file/...`",
         parse_mode="Markdown"
     )
 
+# Handle plain text messages (potential links)
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_input = update.message.text.strip()
-    
-    if "terabox.com" in user_input or "1024tera.com" in user_input:
+    message = update.message.text.strip()
+
+    if "terabox.com" in message or "1024tera.com" in message:
         await update.message.reply_text(
-            f"🔗 *Your Link:*\n{user_input}\n\n"
-            "➡️ Open the link in your browser.\n"
-            "📥 Log in to TeraBox (if needed) and download the file.\n\n"
-            "_Tip: Use desktop browser for best results._",
+            f"✅ *Detected TeraBox Link:*\n{message}\n\n"
+            "📌 Please open the link in your browser.\n"
+            "🖥️ For best results, use a desktop browser and log in to your TeraBox account.\n\n"
+            "⚠️ _This bot does not automatically download or process files for safety._",
             parse_mode="Markdown"
         )
     else:
-        await update.message.reply_text("❌ That doesn’t look like a valid TeraBox link. Please try again.")
+        await update.message.reply_text("❌ That doesn’t look like a valid TeraBox link.")
 
-# Build and run the app
+# Build and run the bot
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
