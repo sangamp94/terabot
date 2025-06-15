@@ -5,7 +5,7 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-BOT_TOKEN = "YOUR_BOT_TOKEN"
+BOT_TOKEN = "7978862914:AAE9YgkLOTMsynLVquZEESWbvYglJbfNWHc"
 bot = Bot(BOT_TOKEN)
 
 @app.route('/', methods=["POST"])
