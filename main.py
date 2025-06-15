@@ -1,38 +1,26 @@
 from flask import Flask, request
+import os
 import requests
+from datetime import datetime, timedelta
 from telegram import Bot
 from playwright.sync_api import sync_playwright
-import urllib.parse
-from datetime import datetime, timedelta
-import os
 
 app = Flask(__name__)
 
 BOT_TOKEN = "7978862914:AAE9YgkLOTMsynLVquZEESWbvYglJbfNWHc"
+VALID_TOKEN = "12345678"  # Replace with a secure token
+COOLDOWN_MINUTES = 2
+TOKEN_EXPIRY_HOURS = 5
+
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 bot = Bot(BOT_TOKEN)
 
-VALID_TOKEN = "12345678"
 user_tokens = {}         # chat_id: expiry time
-last_request_time = {}   # chat_id: last used time
-TOKEN_EXPIRY_HOURS = 5
-REQUEST_COOLDOWN_MINUTES = 2
+last_usage = {}          # chat_id: last use time
 
 
 def send_message(chat_id, text):
     bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
-
-
-def is_user_verified(chat_id):
-    expiry = user_tokens.get(chat_id)
-    return expiry and datetime.now() < expiry
-
-
-def is_request_allowed(chat_id):
-    last_time = last_request_time.get(chat_id)
-    if not last_time:
-        return True
-    return datetime.now() >= last_time + timedelta(minutes=REQUEST_COOLDOWN_MINUTES)
 
 
 def extract_direct_link(share_url):
@@ -40,22 +28,35 @@ def extract_direct_link(share_url):
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
         page.goto(share_url, timeout=60000)
-        page.wait_for_timeout(3000)
-        frame = page.query_selector("iframe")
-        if frame:
-            page = frame.content_frame()
-            page.wait_for_timeout(3000)
-        video_tag = page.query_selector("video source")
-        direct_url = video_tag.get_attribute("src") if video_tag else None
-        browser.close()
-        return urllib.parse.unquote(direct_url) if direct_url else None
+        page.wait_for_timeout(5000)
+
+        try:
+            play_button = page.query_selector("video")
+            if not play_button:
+                return None
+            src = play_button.get_attribute("src")
+            return src if src.startswith("http") else None
+        finally:
+            browser.close()
 
 
-@app.route("/", methods=["POST"])
+def is_user_verified(chat_id):
+    expiry = user_tokens.get(chat_id)
+    return expiry and datetime.now() < expiry
+
+
+def is_on_cooldown(chat_id):
+    last = last_usage.get(chat_id)
+    if not last:
+        return False
+    return datetime.now() < last + timedelta(minutes=COOLDOWN_MINUTES)
+
+
+@app.route('/', methods=['POST'])
 def webhook():
     update = request.get_json()
     if not update:
-        return "No update received"
+        return "No update"
 
     message = update.get("message")
     if not message:
@@ -64,12 +65,10 @@ def webhook():
     chat_id = message["chat"]["id"]
     text = message.get("text")
 
-    # /start
     if text and text.startswith("/start"):
-        send_message(chat_id, "👋 *Welcome to the TeraBox Video Link Extractor Bot!*")
+        send_message(chat_id, "👋 *Welcome to the TeraBox Downloader Bot!*\nUse `/token <your_token>` to begin.")
         return "ok"
 
-    # /token <your_token>
     if text and text.startswith("/token"):
         parts = text.split(" ", 1)
         if len(parts) < 2:
@@ -78,44 +77,42 @@ def webhook():
 
         input_token = parts[1].strip()
         if input_token == VALID_TOKEN:
-            expiry = datetime.now() + timedelta(hours=TOKEN_EXPIRY_HOURS)
-            user_tokens[chat_id] = expiry
-            send_message(chat_id, f"✅ *Access granted for {TOKEN_EXPIRY_HOURS} hours!*")
+            user_tokens[chat_id] = datetime.now() + timedelta(hours=TOKEN_EXPIRY_HOURS)
+            send_message(chat_id, "✅ *Token verified! You have 5 hours access.*")
         else:
             send_message(chat_id, "⛔ *Invalid token.*")
         return "ok"
 
-    # /terabox <link>
-    if text and text.startswith("/terabox"):
+    if text and text.startswith("/getlink"):
         if not is_user_verified(chat_id):
-            send_message(chat_id, "⛔ *Token not verified.*\nUse `/token <your_token>` to activate access.")
+            send_message(chat_id, "🔒 *Access Denied.* Use `/token <your_token>` to verify.")
             return "ok"
 
-        if not is_request_allowed(chat_id):
-            send_message(chat_id, f"⏳ Please wait before sending another request.")
+        if is_on_cooldown(chat_id):
+            send_message(chat_id, f"🕒 *Please wait {COOLDOWN_MINUTES} minutes between requests.*")
             return "ok"
 
         parts = text.split(" ", 1)
         if len(parts) < 2:
-            send_message(chat_id, "❗ Usage: `/terabox <TeraBox_Share_Link>`")
+            send_message(chat_id, "❗ Usage: `/getlink <terabox_share_url>`")
             return "ok"
 
-        link = parts[1].strip()
-        if not link.startswith("https://teraboxapp.com/s/"):
-            send_message(chat_id, "⛔ Invalid TeraBox share link.")
+        share_url = parts[1].strip()
+        if not share_url.startswith("http"):
+            send_message(chat_id, "❗ *Invalid URL provided.*")
             return "ok"
 
-        send_message(chat_id, "🔍 Extracting video link...")
+        send_message(chat_id, "🔍 *Fetching direct link from TeraBox...*")
 
         try:
-            direct_url = extract_direct_link(link)
-            if direct_url:
-                send_message(chat_id, f"✅ *Direct Link:*\n{direct_url}")
-                last_request_time[chat_id] = datetime.now()
+            direct_link = extract_direct_link(share_url)
+            if direct_link:
+                send_message(chat_id, f"✅ *Direct Link:*\n`{direct_link}`")
+                last_usage[chat_id] = datetime.now()
             else:
-                send_message(chat_id, "❌ Could not find the video link.")
+                send_message(chat_id, "❌ *Failed to extract the link.*")
         except Exception as e:
-            send_message(chat_id, f"⚠️ Error: `{str(e)}`")
+            send_message(chat_id, f"⚠️ *Error:* `{str(e)}`")
 
         return "ok"
 
@@ -123,4 +120,4 @@ def webhook():
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
