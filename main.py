@@ -1,114 +1,101 @@
 from flask import Flask, request
 import requests
-import os
+import time
+import re
 
 app = Flask(__name__)
 
+# ✅ Your Telegram Bot Token
 BOT_TOKEN = "8182816847:AAGcetpSXP0gpNgYj8CJAryxnH5_nRYW2gM"
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 
-VALID_TOKEN = "12345678"  # your auth token
-TOKEN_EXPIRY_SECONDS = 18000  # 5 hours
+# ✅ Token for user access verification
+VALID_TOKEN = "12345678"
 
-import time
-token_issue_time = time.time()
+# ✅ Store the last upload time per user to limit frequency (in-memory)
 last_upload_time = {}
 
-def is_token_valid():
-    return time.time() - token_issue_time < TOKEN_EXPIRY_SECONDS
+# ✅ TeraBox parsing function using unofficial downloader
+def get_direct_link(terabox_url):
+    session = requests.Session()
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+    response = session.get("https://teraboxdownloader.online/", headers=headers)
+    
+    # Simulate form submission
+    payload = {
+        "url": terabox_url
+    }
+    headers["Content-Type"] = "application/x-www-form-urlencoded"
+    post_response = session.post("https://teraboxdownloader.online/api/ajaxSearch", data=payload, headers=headers)
 
-def send_message(chat_id, text):
-    requests.post(f"{API_URL}sendMessage", json={"chat_id": chat_id, "text": text})
+    try:
+        result = post_response.json()
+        if result.get("status") and result.get("links"):
+            return result["links"][0]["link"]
+        else:
+            return None
+    except Exception as e:
+        print("Error parsing JSON:", e)
+        return None
 
+# ✅ Safe message sender with optional Markdown formatting
+def send_message(chat_id, text, parse_mode=None):
+    payload = {
+        "chat_id": chat_id,
+        "text": text
+    }
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
+    requests.post(f"{API_URL}sendMessage", json=payload)
+
+# ✅ Main webhook route for Telegram bot
 @app.route("/", methods=["POST"])
 def webhook():
     data = request.get_json()
-    if "message" not in data:
-        return "ok"
+    if not data or "message" not in data:
+        return "No message", 200
 
     message = data["message"]
     chat_id = message["chat"]["id"]
     text = message.get("text", "")
 
     if text.startswith("/start"):
-        send_message(chat_id, "👋 Welcome! Send me a TeraBox link to get a direct download link.")
-        return "ok"
+        send_message(chat_id, "👋 Welcome to TeraBox Downloader Bot!\nSend your access token to begin.")
+        return "OK", 200
 
-    if text.startswith("/token"):
+    # 🔐 Token Verification
+    if text.strip() == VALID_TOKEN:
         send_message(chat_id, f"✅ Your access token is: `{VALID_TOKEN}`\nValid for 5 hours.", parse_mode="Markdown")
-        return "ok"
+        return "OK", 200
 
-    # check token
+    # ❌ If user hasn't verified token
     if VALID_TOKEN not in text:
-        send_message(chat_id, "❌ Invalid token. Please use your token to authenticate.")
-        return "ok"
+        send_message(chat_id, "❌ Your token is not verified.\nPlease send the correct token to proceed.")
+        return "OK", 200
 
-    # rate limit 10 mins
-    user_id = str(chat_id)
-    current_time = time.time()
-    if user_id in last_upload_time and current_time - last_upload_time[user_id] < 600:
-        wait = int(600 - (current_time - last_upload_time[user_id]))
-        send_message(chat_id, f"⏳ Please wait {wait} seconds before uploading again.")
-        return "ok"
-    last_upload_time[user_id] = current_time
+    # ⏳ Enforce upload limit (1 request every 10 minutes per user)
+    now = time.time()
+    if chat_id in last_upload_time and now - last_upload_time[chat_id] < 600:
+        remaining = int(600 - (now - last_upload_time[chat_id]))
+        send_message(chat_id, f"⏳ Please wait {remaining} seconds before uploading another link.")
+        return "OK", 200
 
-    try:
-        send_message(chat_id, "⏳ Fetching the direct link, please wait...")
+    # ✅ Process TeraBox URL
+    urls = re.findall(r'https?://[^\s]+', text)
+    if not urls:
+        send_message(chat_id, "⚠️ No valid URL found in your message.")
+        return "OK", 200
 
-        # Extract actual URL from message
-        for part in text.split():
-            if "teraboxapp.com/s/" in part:
-                terabox_url = part.strip()
-                break
-        else:
-            send_message(chat_id, "⚠️ No valid TeraBox link found in your message.")
-            return "ok"
+    tera_url = urls[0]
+    send_message(chat_id, "⏳ Processing your TeraBox link, please wait...")
 
-        # API call to teraboxdownloader.online
-        api_response = requests.post(
-            "https://teraboxdownloader.online/api.php",
-            json={"url": terabox_url},
-            headers={"Content-Type": "application/json"},
-            timeout=15
-        )
+    direct_link = get_direct_link(tera_url)
+    if direct_link:
+        send_message(chat_id, f"✅ Direct Download Link:\n{direct_link}")
+        last_upload_time[chat_id] = now
+    else:
+        send_message(chat_id, "❌ Failed to generate direct link. Please try again later.")
 
-        result = api_response.json()
-
-        if "direct_link" not in result:
-            send_message(chat_id, f"⚠️ Failed to get direct link.\n\nResponse: `{result}`")
-            return "ok"
-
-        # Format the response
-        direct_link = result["direct_link"]
-        file_name = result.get("file_name", "Unknown file")
-        size = result.get("size", "Unknown size")
-        thumb = result.get("thumb", None)
-
-        proxy_link = f"https://teraboxdownloader.online/proxy.php?url={direct_link}"
-
-        reply = f"""🎬 *{file_name}*
-📦 Size: {size}
-
-🔗 Direct Link Preview:
-{proxy_link}
-"""
-
-        if thumb:
-            requests.post(f"{API_URL}sendPhoto", json={
-                "chat_id": chat_id,
-                "photo": thumb,
-                "caption": reply,
-                "parse_mode": "Markdown"
-            })
-        else:
-            send_message(chat_id, reply)
-
-    except Exception as e:
-        send_message(chat_id, f"❌ Error: {e}")
-
-    return "ok"
-
-# Run with port
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    return "OK", 200
