@@ -7,7 +7,7 @@ app = Flask(__name__)
 
 BOT_TOKEN = "8182816847:AAGcetpSXP0gpNgYj8CJAryxnH5_nRYW2gM"  # Replace with your bot token
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-VALID_TOKEN = "jai shree ram"
+VALID_TOKEN = "12345678"
 last_upload_time = {}
 
 @app.route('/', methods=['POST'])
