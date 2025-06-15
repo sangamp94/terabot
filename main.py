@@ -1,53 +1,61 @@
+import asyncio
 from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters
-)
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+import undetected_chromedriver as uc
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+import time
 
-# Replace this with your actual BotFather token
-BOT_TOKEN = "7978862914:AAE9YgkLOTMsynLVquZEESWbvYglJbfNWHc"
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
 
-# /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 Welcome to the TeraBox Link Helper Bot!\n\n"
-        "📥 Just send me a TeraBox link and I’ll guide you on how to open/download it safely."
-    )
+    await update.message.reply_text("\ud83d\udc4b Send me your TeraBox link and I'll get the direct download link.")
 
-# /help command
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "ℹ️ *Help Guide*\n\n"
-        "Paste a TeraBox link, and I’ll help you open or download it.\n\n"
-        "*Examples:*\n"
-        "`https://terabox.com/s/...`\n"
-        "`https://www.1024tera.com/file/...`",
-        parse_mode="Markdown"
-    )
-
-# Handle plain text messages (potential links)
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.message.text.strip()
+    tera_link = update.message.text
+    await update.message.reply_text("\u23f3 Processing your link...")
 
-    if "terabox.com" in message or "1024tera.com" in message:
-        await update.message.reply_text(
-            f"✅ *Detected TeraBox Link:*\n{message}\n\n"
-            "📌 Please open the link in your browser.\n"
-            "🖥️ For best results, use a desktop browser and log in to your TeraBox account.\n\n"
-            "⚠️ _This bot does not automatically download or process files for safety._",
-            parse_mode="Markdown"
-        )
-    else:
-        await update.message.reply_text("❌ That doesn’t look like a valid TeraBox link.")
+    try:
+        download_link = get_direct_link(tera_link)
+        if download_link:
+            await update.message.reply_text(f"\u2705 Direct Download Link:\n{download_link}")
+        else:
+            await update.message.reply_text("\u274c Failed to extract the download link. Try again later.")
+    except Exception as e:
+        await update.message.reply_text(f"\u26a0\ufe0f Error: {e}")
 
-# Build and run the bot
-app = ApplicationBuilder().token(BOT_TOKEN).build()
+def get_direct_link(tera_url):
+    options = uc.ChromeOptions()
+    options.add_argument('--headless=new')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    driver = uc.Chrome(options=options)
 
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("help", help_command))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    try:
+        driver.get("https://teraboxdownloader.online/")
+        time.sleep(2)
 
-app.run_polling()
+        input_box = driver.find_element(By.ID, "link")
+        input_box.send_keys(tera_url)
+        input_box.send_keys(Keys.RETURN)
+
+        time.sleep(6)
+
+        link_element = driver.find_element(By.XPATH, '//a[contains(text(), "Download")]')
+        download_link = link_element.get_attribute("href")
+        return download_link
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
+    finally:
+        driver.quit()
+
+if __name__ == '__main__':
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    print("\ud83e\udd16 Bot is running...")
+    asyncio.run(app.run_polling())
