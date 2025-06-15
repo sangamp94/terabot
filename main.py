@@ -1,39 +1,44 @@
-from flask import Flask, request
-import requests
-import os
+# main.py
+from telegram import Update
+from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
+from playwright.sync_api import sync_playwright
 
-BOT_TOKEN = "7978862914:AAE9YgkLOTMsynLVquZEESWbvYglJbfNWHc"  # Replace with your Telegram bot token
-API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
+BOT_TOKEN = "7978862914:AAE9YgkLOTMsynLVquZEESWbvYglJbfNWHc"  # Replace with your real Telegram bot token
 
-app = Flask(__name__)
+def get_direct_link(url: str) -> str:
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(url, timeout=60000)
 
-def get_direct_link_from_terabox(url):
-    # Dummy placeholder logic — replace with real TeraBox scraping
-    if "terabox.com" not in url:
-        return None
-    # Simulate a parsed download link
-    return "https://download-link-from-terabox.com/example"
+        try:
+            # Wait for a direct download button with URL containing "https://d"
+            page.wait_for_selector('a[href*="https://d"].download-button', timeout=20000)
+            link = page.get_attribute('a[href*="https://d"]', 'href')
+        except:
+            browser.close()
+            raise Exception("❌ Direct download link not found. The file may be private or expired.")
 
-def send_message(chat_id, text):
-    data = {"chat_id": chat_id, "text": text}
-    requests.post(f"{API_URL}sendMessage", data=data)
+        browser.close()
+        if not link:
+            raise Exception("❌ Could not extract download link.")
+        return link
 
-@app.route("/", methods=["POST"])
-def webhook():
-    data = request.get_json()
-    if "message" in data and "text" in data["message"]:
-        chat_id = data["message"]["chat"]["id"]
-        text = data["message"]["text"]
-        if "terabox.com" in text:
-            send_message(chat_id, "🔍 Processing your TeraBox link...")
-            direct_link = get_direct_link_from_terabox(text)
-            if direct_link:
-                send_message(chat_id, f"✅ Direct Link:\n{direct_link}")
-            else:
-                send_message(chat_id, "❌ Could not extract link.")
-        else:
-            send_message(chat_id, "❌ Please send a valid TeraBox link.")
-    return "ok", 200
+async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = update.message.text.strip()
+    if "terabox.com" not in url and "teraboxapp.com" not in url:
+        await update.message.reply_text("❌ Please send a valid TeraBox link.")
+        return
+
+    await update.message.reply_text("🔍 Fetching direct download link...")
+    try:
+        direct_link = get_direct_link(url)
+        await update.message.reply_text(f"✅ Direct Download Link:\n{direct_link}")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
+    print("🤖 Bot is running...")
+    app.run_polling()
