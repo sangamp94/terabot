@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: terabox-downloader
+    env: python
+    buildCommand: "pip install -r requirements.txt && playwright install"
+    startCommand: "gunicorn -b 0.0.0.0:10000 main:app"
