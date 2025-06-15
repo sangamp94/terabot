@@ -5,26 +5,32 @@ from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
-BOT_TOKEN = "7978862914:AAE9YgkLOTMsynLVquZEESWbvYglJbfNWHc"
+# Telegram & Auth
+BOT_TOKEN = "e1ee8114a3msh6aa90362eb62b31p1913f1jsne6671eb9046d"
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 VALID_TOKEN = "12345678"
+
+# TeraBox API via RapidAPI
+RAPIDAPI_KEY = "YOUR_RAPIDAPI_KEY"
+RAPIDAPI_HOST = "terabox-downloader-direct-download-link-generator2.p.rapidapi.com"
+RAPIDAPI_BASE = f"https://{RAPIDAPI_HOST}/url"
+
+# In-memory session control
 user_tokens = {}
 last_upload_time = {}
 
+# Config
 TOKEN_EXPIRY_HOURS = 5
 UPLOAD_COOLDOWN_MINUTES = 2
 
-
 def send_message(chat_id, text):
     url = API_URL + "sendMessage"
-    data = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
+    data = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown", "disable_web_page_preview": False}
     requests.post(url, json=data)
-
 
 def is_user_verified(chat_id):
     expiry = user_tokens.get(chat_id)
     return expiry and datetime.now() < expiry
-
 
 def is_upload_allowed(chat_id):
     last_time = last_upload_time.get(chat_id)
@@ -32,8 +38,7 @@ def is_upload_allowed(chat_id):
         return True
     return datetime.now() >= last_time + timedelta(minutes=UPLOAD_COOLDOWN_MINUTES)
 
-
-@app.route('/', methods=['POST'])
+@app.route("/", methods=["POST"])
 def webhook():
     update = request.get_json()
     if not update:
@@ -44,13 +49,13 @@ def webhook():
         return "No message"
 
     chat_id = message["chat"]["id"]
-    text = message.get("text")
+    text = message.get("text", "")
 
-    if text and text.startswith("/start"):
-        send_message(chat_id, "👋 *Hello, I am a Terabox Direct Download Bot!*")
+    if text.startswith("/start"):
+        send_message(chat_id, "👋 *Welcome to TeraBox Direct Download Bot!*\nUse `/token <your_token>` to get started.")
         return "ok"
 
-    if text and text.startswith("/token"):
+    if text.startswith("/token"):
         parts = text.split(" ", 1)
         if len(parts) < 2:
             send_message(chat_id, "❗ Usage: `/token <your_token>`")
@@ -60,18 +65,18 @@ def webhook():
         if input_token == VALID_TOKEN:
             expiry = datetime.now() + timedelta(hours=TOKEN_EXPIRY_HOURS)
             user_tokens[chat_id] = expiry
-            send_message(chat_id, f"✅ *Access granted for 5 hours!*")
+            send_message(chat_id, "✅ *Access granted for 5 hours!*")
         else:
             send_message(chat_id, "⛔ *Invalid token.*")
         return "ok"
 
-    elif text and text.startswith("/uploadurl"):
+    if text.startswith("/uploadurl"):
         if not is_user_verified(chat_id):
             send_message(chat_id, "⛔ *Token not verified.* Use `/token <your_token>`.")
             return "ok"
 
         if not is_upload_allowed(chat_id):
-            send_message(chat_id, f"⏳ Please wait {UPLOAD_COOLDOWN_MINUTES} minutes between downloads.")
+            send_message(chat_id, f"⏳ Please wait {UPLOAD_COOLDOWN_MINUTES} minutes between requests.")
             return "ok"
 
         parts = text.split(" ", 1)
@@ -79,30 +84,46 @@ def webhook():
             send_message(chat_id, "❗ Usage: `/uploadurl <terabox_url>`")
             return "ok"
 
-        url = parts[1].strip()
-        if "terabox.com" not in url:
+        terabox_url = parts[1].strip()
+
+        if "terabox" not in terabox_url:
             send_message(chat_id, "❗ Only *Terabox* links are supported.")
             return "ok"
 
-        send_message(chat_id, "🔍 Extracting Terabox download link...")
+        send_message(chat_id, "🔍 *Extracting download link...*")
 
         try:
-            # Replace with a real extractor if needed (this is a dummy/fake endpoint for demo)
-            res = requests.get(f"https://terabox-to-direct-link-api.vercel.app/api?url={url}", timeout=20).json()
+            params = {"url": terabox_url}
+            headers = {
+                "x-rapidapi-key": RAPIDAPI_KEY,
+                "x-rapidapi-host": RAPIDAPI_HOST
+            }
 
-            if res.get("success") and res.get("download_url"):
-                download_url = res["download_url"]
-                filename = res.get("filename", "video.mp4")
-                send_message(chat_id, f"✅ *Direct link generated!*\n🎬 **File**: `{filename}`\n🔗 [Click to Download]({download_url})")
+            response = requests.get(RAPIDAPI_BASE, headers=headers, params=params, timeout=20)
+            response.raise_for_status()
+            data = response.json()
+
+            if data.get("link"):
+                filename = data.get("file_name", "file.mp4")
+                size = data.get("size", "Unknown size")
+                link = data["link"]
+
+                message = (
+                    f"✅ *Direct Link Generated!*\n"
+                    f"🎬 *File:* `{filename}`\n"
+                    f"📦 *Size:* {size}\n"
+                    f"🔗 [Click to Download]({link})"
+                )
+                send_message(chat_id, message)
                 last_upload_time[chat_id] = datetime.now()
             else:
-                send_message(chat_id, f"❌ Failed to extract link.\nDetails: {res.get('message', 'Unknown error')}")
+                send_message(chat_id, "❌ Failed to extract link.")
         except Exception as e:
             send_message(chat_id, f"⚠️ Error: `{str(e)}`")
+
         return "ok"
 
     return "ok"
 
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
