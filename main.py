@@ -17,7 +17,8 @@ def send_message(chat_id, text):
     requests.post(f"{TELEGRAM_API}/sendMessage", json={
         "chat_id": chat_id,
         "text": text,
-        "parse_mode": "Markdown"
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": False
     })
 
 # Generate JWT token
@@ -35,23 +36,36 @@ def webhook():
     data = request.json
     if "message" in data:
         chat_id = data["message"]["chat"]["id"]
-        text = data["message"].get("text", "")
+        text = data["message"].get("text", "").strip()
 
         if text == "/start":
-            send_message(chat_id, "👋 *Welcome!*\nSend me a Terabox link to get a direct download link. Devoloped by Streamify Bots")
+            send_message(chat_id, "👋 *Welcome!*\nSend me a Terabox link to get a direct download link.\n\n_Devoloped by Streamify Bots_")
         elif text == "/token":
             token = generate_token()
             send_message(chat_id, f"🪪 *Your 5-hour token:*\n\n`{token}`\n\n_Use this for upload authentication._")
-        elif "terabox" in text:
-            link = text.strip()
-            proxy_link = f"https://teraboxdownloader.online/proxy.php?url={link}"
-            send_message(chat_id, f"🔗 *Direct Link Preview:*\n{proxy_link}")
+        elif "teraboxapp.com" in text or "terabox.com" in text:
+            try:
+                # Fetch metadata via API
+                api_resp = requests.post("https://teraboxdownloader.online/api.php", json={"link": text}, timeout=15)
+                data = api_resp.json()
+
+                if "direct_link" in data:
+                    file_name = data.get("file_name", "Unknown")
+                    size = data.get("size", "N/A")
+                    final_link = f"https://teraboxdownloader.online/proxy.php?url={data['direct_link']}"
+
+                    reply = f"🎬 *{file_name}*\n📦 Size: {size}\n\n📥 [Download Now]({final_link})"
+                    send_message(chat_id, reply)
+                else:
+                    send_message(chat_id, f"⚠️ Failed to retrieve direct link.\nResponse: `{data}`")
+            except Exception as e:
+                send_message(chat_id, f"❌ Error: `{str(e)}`")
         else:
             send_message(chat_id, "❗ Unknown command. Try /start or /token.")
 
     return "ok"
 
-# Run app with proper port binding
+# Run app on Render-compatible port
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
