@@ -6,12 +6,12 @@ from datetime import datetime, timedelta
 app = Flask(__name__)
 
 # Telegram & Auth
-BOT_TOKEN = "e1ee8114a3msh6aa90362eb62b31p1913f1jsne6671eb9046d"
+BOT_TOKEN = "7978862914:AAE9YgkLOTMsynLVquZEESWbvYglJbfNWHc"
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 VALID_TOKEN = "12345678"
 
 # TeraBox API via RapidAPI
-RAPIDAPI_KEY = "YOUR_RAPIDAPI_KEY"
+RAPIDAPI_KEY = "e1ee8114a3msh6aa90362eb62b31p1913f1jsne6671eb9046d"
 RAPIDAPI_HOST = "terabox-downloader-direct-download-link-generator2.p.rapidapi.com"
 RAPIDAPI_BASE = f"https://{RAPIDAPI_HOST}/url"
 
