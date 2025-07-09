@@ -11,7 +11,7 @@ import threading
 
 # --- Configuration ---
 M3U_URL = "https://raw.githubusercontent.com/alex4528/m3u/main/jstar.m3u"
-PIXELDRAIN_API_KEY = "60022898-39c5-4a3c-a3c4-bbbccbde20ad"
+PIXELDRAIN_API_KEY = "3bfe7e74-956a-4f93-b1a4-4220f741448b"
 BOT_TOKEN = "7386617987:AAGounvetKHtmtqCxEbY_Idc5M2IfUNSst4"
 PORT = 5000
 
